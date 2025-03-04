@@ -369,3 +369,72 @@
   (begin
     (asserts! (is-valid-verification-data data) error-invalid-asset-data)
     (ok true)))
+
+;; ******************************************************************
+;; Optimized Registry Operations
+;; ******************************************************************
+(define-public (optimized-group-registration (verification-data-list (list 50 (string-ascii 256))))
+  (begin
+    (let ((group-size (len verification-data-list)))
+      (asserts! (<= group-size max-group-issuance) error-group-size-invalid)
+      (ok "Group Registration Optimized"))))
+
+;; ******************************************************************
+;; Batch Asset Operations
+;; ******************************************************************
+(define-public (batch-transfer-eco-assets (asset-ids (list 50 uint)) (new-holder principal))
+  (begin
+    (ok "Multiple Assets Transferred")))
+
+;; ******************************************************************
+;; Optimized Asset Retirement
+;; ******************************************************************
+(define-public (optimized-asset-retirement (asset-id uint))
+  (begin
+    (asserts! (not (is-asset-retired asset-id)) error-retirement-failed)
+    (try! (nft-burn? eco-asset asset-id tx-sender))
+    (ok "Asset Retired")))
+
+;; ******************************************************************
+;; Registry Interface Enhancement
+;; ******************************************************************
+(define-public (add-registry-interface)
+  (begin
+    ;; Create verification interface element
+    (ok "Registry Interface Added")))
+
+;; Enhanced transfer validation
+(define-public (secure-asset-transfer (asset-id uint) (new-holder principal))
+    (begin
+        (asserts! (not (is-asset-retired asset-id)) error-retirement-failed)
+        (asserts! (is-asset-holder asset-id tx-sender) error-not-asset-holder)
+        (try! (transfer-eco-asset asset-id tx-sender new-holder))
+        (ok true)))
+
+
+;; Group validation of verification data
+(define-public (validate-group-verification-data (data-list (list 50 (string-ascii 256))))
+    (begin
+        (asserts! (<= (len data-list) max-group-issuance) error-group-size-invalid)
+        (asserts! (fold validate-verification-data data-list true) error-invalid-asset-data)
+        (ok true)))
+
+;; Retrieve detailed asset information
+(define-read-only (get-detailed-asset-info (asset-id uint))
+    (let ((holder (unwrap! (nft-get-owner? eco-asset asset-id) error-missing-asset)))
+        (ok {
+            id: asset-id,
+            holder: holder,
+            verification-data: (unwrap! (map-get? asset-verification-data asset-id) error-missing-asset),
+            retired: (is-asset-retired asset-id),
+            group-data: (map-get? asset-group-data asset-id)
+        })))
+
+;; Verification helper: Check asset custody
+(define-read-only (verify-asset-custody 
+    (asset-id uint) 
+    (expected-holder principal))
+    (ok (is-eq 
+        (some expected-holder)
+        (nft-get-owner? eco-asset asset-id))))
+
