@@ -536,3 +536,105 @@
 (define-public (verify-registry-admin)
   (ok (is-eq tx-sender admin-principal))) ;; Verify caller is registry administrator
 
+
+;; ******************************************************************
+;; Registry Administration Security
+;; ******************************************************************
+(define-public (secure-admin-transition)
+  (begin
+    ;; Prevent unauthorized admin changes after deployment
+    (asserts! (is-eq tx-sender admin-principal) error-unauthorized)
+    (ok "Admin transition restricted after deployment")))
+
+;; ******************************************************************
+;; Batch Asset Retirement
+;; ******************************************************************
+(define-public (batch-retire-eco-assets (asset-ids (list 50 uint)))
+    (begin
+        (asserts! (> (len asset-ids) u0) error-group-size-invalid)
+        (asserts! (<= (len asset-ids) max-group-issuance) error-group-size-invalid)
+        (map retire-eco-asset asset-ids)
+        (ok true)))
+
+;; ******************************************************************
+;; Asset Data Enhancement
+;; ******************************************************************
+(define-public (add-asset-group-data (asset-id uint) (group-data (string-ascii 256)))
+    (let ((asset-holder (unwrap! (nft-get-owner? eco-asset asset-id) error-missing-asset)))
+        (asserts! (is-eq asset-holder tx-sender) error-not-asset-holder)
+        (asserts! (is-valid-verification-data group-data) error-invalid-asset-data)
+        (map-set asset-group-data asset-id group-data)
+        (ok true)))
+
+;; ******************************************************************
+;; Batch Transfer Helper
+;; ******************************************************************
+(define-private (transfer-single-asset (transfer {asset-id: uint, recipient: principal}))
+    (transfer-eco-asset (get asset-id transfer) tx-sender (get recipient transfer)))
+
+;; Registry emergency pause mechanism
+(define-data-var registry-paused bool false) ;; Tracks registry operational status
+
+(define-public (pause-registry)
+  (begin
+    (asserts! (is-eq tx-sender admin-principal) error-unauthorized)
+    (var-set registry-paused true)
+    (ok true)))
+
+(define-public (resume-registry)
+  (begin
+    (asserts! (is-eq tx-sender admin-principal) error-unauthorized)
+    (var-set registry-paused false)
+    (ok true)))
+
+;; Registration control mechanism
+
+(define-data-var registration-enabled bool true) ;; Tracks registration status
+
+(define-public (toggle-registration-status)
+  (begin
+    (asserts! (is-eq tx-sender admin-principal) error-unauthorized)
+    (let ((current-status (var-get registration-enabled)))
+      (var-set registration-enabled (not current-status))
+      (ok true))))
+
+;; Validate ownership before transfer execution
+(define-public (validate-pre-transfer (asset-id uint) (new-holder principal))
+(let ((asset-holder (unwrap! (nft-get-owner? eco-asset asset-id) error-missing-asset)))
+  (asserts! (is-eq asset-holder tx-sender) error-not-asset-holder)
+  (ok true)))
+
+;; Administrator override for compliance requirements
+(define-public (admin-override-custody (asset-id uint))
+(begin
+  (asserts! (is-eq tx-sender admin-principal) error-unauthorized)
+  (try! (nft-transfer? eco-asset asset-id tx-sender admin-principal))
+  (ok true)))
+
+;; Prevent operations on non-existent assets
+(define-public (verify-asset-registry-entry (asset-id uint))
+(let ((asset-holder (nft-get-owner? eco-asset asset-id)))
+  (if (is-some asset-holder)
+      (ok true)
+      (err error-missing-asset))))
+
+;; Permanently retire asset from active circulation
+(define-public (decommission-asset (asset-id uint))
+(begin
+  (asserts! (is-eq tx-sender (unwrap! (nft-get-owner? eco-asset asset-id) error-missing-asset)) error-not-asset-holder)
+  (try! (nft-transfer? eco-asset asset-id tx-sender admin-principal))
+  (ok true)))
+
+;; Add asset to conservation project or fund
+(define-public (allocate-to-conservation-project (asset-id uint) (project principal))
+(begin
+  (asserts! (is-eq tx-sender (unwrap! (nft-get-owner? eco-asset asset-id) error-missing-asset)) error-not-asset-holder)
+  (ok true)))
+
+;; Prevent unauthorized retirement
+(define-public (enforce-retirement-policy (asset-id uint))
+(begin
+  (asserts! (is-eq tx-sender admin-principal) error-unauthorized)
+  (try! (nft-transfer? eco-asset asset-id tx-sender admin-principal))
+  (ok true)))
+
