@@ -140,3 +140,96 @@
     (asserts! (is-valid-verification-data updated-data) error-invalid-asset-data)
     (map-set asset-verification-data asset-id updated-data)
     (ok true)))
+
+
+;; ******************************************************************
+;; Registry Query Functions
+;; ******************************************************************
+
+;; Retrieve verification data for asset
+(define-read-only (get-asset-verification (asset-id uint))
+  (ok (map-get? asset-verification-data asset-id)))
+
+(define-read-only (verify-asset-exists-active (asset-id uint))
+(let ((holder (nft-get-owner? eco-asset asset-id)))
+  (if (is-some holder)
+      (ok (not (is-asset-retired asset-id)))
+      (err error-missing-asset))))
+
+;; Retrieve current holder of asset
+(define-read-only (get-asset-holder (asset-id uint))
+  (ok (nft-get-owner? eco-asset asset-id)))
+
+;; Retrieve latest registered asset ID
+(define-read-only (get-latest-asset-id)
+  (ok (var-get registry-counter)))
+
+;; Check if asset is retired
+(define-read-only (get-asset-retirement-status (asset-id uint))
+  (ok (is-asset-retired asset-id)))
+
+;; Retrieve group data for specific asset ID
+(define-read-only (get-asset-group-data (asset-id uint))
+  (ok (map-get? asset-group-data asset-id)))
+
+;; Retrieve detailed metadata for specific asset
+(define-read-only (get-asset-metadata (asset-id uint))
+  (ok (map-get? asset-group-data asset-id)))
+
+;; Verify caller is registry administrator
+(define-read-only (is-caller-admin)
+  (ok (is-eq tx-sender admin-principal)))
+
+;; Retrieve group of asset details
+(define-read-only (get-asset-group-details (start-id uint) (count uint))
+  (ok (map asset-id-to-details
+      (unwrap-panic (as-max-len?
+        (list-registry-entries start-id count)
+        u50)))))
+
+;; Retrieve total assets in registry
+(define-read-only (get-registry-size)
+  (ok (var-get registry-counter)))
+
+;; Format asset ID into structured response
+(define-private (asset-id-to-details (id uint))
+  {
+    asset-id: id,
+    verification-data: (unwrap-panic (get-asset-verification id)),
+    holder: (unwrap-panic (get-asset-holder id)),
+    retired: (unwrap-panic (get-asset-retirement-status id))
+  })
+
+(define-private (asset-id-to-holder-info (id uint))
+(let ((holder (unwrap-panic (nft-get-owner? eco-asset id))))
+  {
+    asset-id: id,
+    holder: holder
+  }))
+
+;; Generate list of sequential asset IDs
+(define-private (list-registry-entries (start uint) (count uint))
+  (map +
+    (list start)
+    (create-number-sequence count)))
+
+;; Check if asset has been registered
+(define-read-only (is-asset-registered (asset-id uint))
+  (ok (is-some (map-get? asset-verification-data asset-id))))
+
+;; Verify asset exists and is active
+(define-read-only (verify-asset-active (asset-id uint))
+  (let ((holder (nft-get-owner? eco-asset asset-id)))
+    (if (is-some holder)
+        (ok (not (is-asset-retired asset-id)))
+        (err error-missing-asset))))
+
+;; Verify caller is registry administrator
+(define-read-only (is-caller-registry-admin)
+  (ok (is-eq tx-sender admin-principal)))
+
+;; ******************************************************************
+;; Registry Initialization
+;; ******************************************************************
+(begin
+  (var-set registry-counter u0)) ;; Initialize the registry counter
