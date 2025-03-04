@@ -233,3 +233,139 @@
 ;; ******************************************************************
 (begin
   (var-set registry-counter u0)) ;; Initialize the registry counter
+
+;; ******************************************************************
+;; Additional Query Functions
+;; ******************************************************************
+
+;; Check if an asset has been registered
+(define-public (asset-exists-in-registry (asset-id uint))
+  (if (is-some (map-get? asset-verification-data asset-id))
+      (ok true)
+      (err error-missing-asset)))
+
+;; Check if asset is valid and owned by caller
+(define-read-only (verify-asset-ownership (asset-id uint))
+  (let ((asset-holder (unwrap! (nft-get-owner? eco-asset asset-id) error-missing-asset)))
+    (if (and (not (is-asset-retired asset-id))
+             (is-eq asset-holder tx-sender))
+        (ok true)
+        (ok false))))
+
+;; Retrieve group data using group ID
+(define-read-only (get-group-data-by-id (group-id uint))
+  (ok (map-get? asset-group-data group-id)))
+
+;; Retrieve verification URI for asset group
+(define-read-only (get-group-verification-data (group-id uint))
+  (ok (map-get? asset-group-data group-id)))
+
+;; Retrieve list of registered assets from starting point
+(define-read-only (get-registered-asset-ids (start-id uint) (limit uint))
+  (ok (map asset-id-to-details (list-registry-entries start-id limit))))
+
+
+;; Get total registered assets 
+(define-read-only (get-total-registered-assets)
+  (ok (var-get registry-counter)))
+
+(define-read-only (get-all-retirement-status)
+  (ok (map asset-id-to-retirement-status (create-number-sequence (var-get registry-counter)))))
+
+(define-private (asset-id-to-retirement-status (id uint))
+  {
+    asset-id: id,
+    retired: (unwrap-panic (get-asset-retirement-status id))
+  })
+
+;; Check if asset has associated group data
+(define-read-only (has-asset-group-data (asset-id uint))
+  (ok (is-some (map-get? asset-group-data asset-id))))
+
+;; Retrieve all retired assets
+(define-read-only (get-all-retired-assets)
+  (ok (map asset-id-to-retirement-status (create-number-sequence (var-get registry-counter)))))
+
+(define-read-only (get-all-verification-data)
+  (let ((total-assets (var-get registry-counter)))
+    (ok (map asset-id-to-verification-data (create-number-sequence total-assets)))))
+
+(define-private (asset-id-to-verification-data (id uint))
+  (let ((data (unwrap-panic (map-get? asset-verification-data id))))
+    {
+      asset-id: id,
+      verification-data: data
+    }))
+
+(define-read-only (get-all-asset-status)
+(let ((total-assets (var-get registry-counter)))
+  (ok (map asset-id-to-status (create-number-sequence total-assets)))))
+
+(define-private (asset-id-to-status (id uint))
+{
+  asset-id: id,
+  retired: (unwrap-panic (get-asset-retirement-status id))
+})
+
+(define-read-only (has-group-data (asset-id uint))
+(ok (is-some (map-get? asset-group-data asset-id))))
+
+(define-read-only (get-asset-group-data-by-id (asset-id uint))
+(ok (map-get? asset-group-data asset-id)))
+
+(define-read-only (get-asset-verification-by-id (asset-id uint))
+(ok (map-get? asset-verification-data asset-id)))
+
+(define-read-only (get-all-asset-holders)
+(let ((total-assets (var-get registry-counter)))
+  (ok (map asset-id-to-holder-info (create-number-sequence total-assets)))))
+
+;; Retrieve metadata for a specific asset group
+(define-read-only (get-group-metadata (group-id uint))
+  (ok (map-get? asset-group-data group-id)))
+
+;; ******************************************************************
+;; Advanced Registry Functions
+;; ******************************************************************
+
+;; Process retirement status mapping
+(define-private (map-retirement-status (asset-id uint))
+  (if (is-asset-retired asset-id)
+      u1
+      u0))
+
+;; Interface helper for asset counting
+(define-private (count-holder-assets (holder principal) (asset-id uint))
+(if (is-eq (unwrap-panic (nft-get-owner? eco-asset asset-id)) holder)
+    u1
+    u0))
+
+;; Enhanced validation for group verification data
+(define-private (validate-verification-data (data (string-ascii 256)) (previous-result bool))
+(and (is-valid-verification-data data) previous-result))
+
+;; Interface helper for ownership filtering
+(define-private (holder-matching (holder principal) (asset-id uint))
+(is-eq (unwrap-panic (nft-get-owner? eco-asset asset-id)) holder))
+
+;; Enhanced security for group registration
+(define-public (secure-group-registration (verification-data-list (list 50 (string-ascii 256))))
+  (begin
+    (asserts! (is-eq tx-sender admin-principal) error-unauthorized)
+    (asserts! (<= (len verification-data-list) max-group-issuance) error-group-size-invalid)
+    (ok (group-register-eco-assets verification-data-list))))
+
+;; Validate holder before asset retirement
+(define-public (verify-holder-before-retirement (asset-id uint))
+  (let ((asset-holder (unwrap! (nft-get-owner? eco-asset asset-id) error-missing-asset)))
+    (asserts! (is-eq asset-holder tx-sender) error-retirement-unauthorized)
+    (ok true)))
+
+;; Define additional error code
+(define-constant error-invalid-holder-update (err u208)) ;; Error for unauthorized holder update
+
+;; Enhanced verification data validation
+(define-private (enhanced-verification-validation (data (string-ascii 256)))
+  (begin
+    (asserts! (is-valid-verification-data data) error-invalid-asset-data)
+    (ok true)))
