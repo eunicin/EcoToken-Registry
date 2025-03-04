@@ -53,7 +53,6 @@
 (define-private (is-asset-holder (asset-id uint) (caller principal))
   (is-eq caller (unwrap! (nft-get-owner? eco-asset asset-id) false)))
 
-
 ;; Validate verification data format and length
 (define-private (is-valid-verification-data (data (string-ascii 256)))
   (let ((data-length (len data)))
@@ -117,26 +116,27 @@
     (map-set retired-assets asset-id true)
     (ok true)))
 
-;; Retrieve current holder of asset
-(define-read-only (get-asset-holder (asset-id uint))
-  (ok (nft-get-owner? eco-asset asset-id)))
+;; Transfer environmental asset to new holder
+(define-public (transfer-eco-asset (asset-id uint) (current-holder principal) (new-holder principal))
+  (begin
+    (asserts! (is-eq new-holder tx-sender) error-not-asset-holder)
+    (asserts! (not (is-asset-retired asset-id)) error-retirement-failed)
+    (let ((verified-holder (unwrap! (nft-get-owner? eco-asset asset-id) error-not-asset-holder)))
+      (asserts! (is-eq verified-holder current-holder) error-not-asset-holder)
+      (try! (nft-transfer? eco-asset asset-id current-holder new-holder))
+      (ok true))))
 
-;; Retrieve latest registered asset ID
-(define-read-only (get-latest-asset-id)
-  (ok (var-get registry-counter)))
+;; Verify asset validity (exists and not retired)
+(define-public (verify-asset-status (asset-id uint))
+  (let ((holder (nft-get-owner? eco-asset asset-id)))
+    (if (is-some holder)
+        (ok (not (is-asset-retired asset-id)))
+        (err error-missing-asset))))
 
-;; Check if asset is retired
-(define-read-only (get-asset-retirement-status (asset-id uint))
-  (ok (is-asset-retired asset-id)))
-
-;; Retrieve group data for specific asset ID
-(define-read-only (get-asset-group-data (asset-id uint))
-  (ok (map-get? asset-group-data asset-id)))
-
-;; Retrieve detailed metadata for specific asset
-(define-read-only (get-asset-metadata (asset-id uint))
-  (ok (map-get? asset-group-data asset-id)))
-
-;; Verify caller is registry administrator
-(define-read-only (is-caller-admin)
-  (ok (is-eq tx-sender admin-principal)))
+;; Update verification data for existing asset
+(define-public (update-asset-verification (asset-id uint) (updated-data (string-ascii 256)))
+  (let ((asset-holder (unwrap! (nft-get-owner? eco-asset asset-id) error-missing-asset)))
+    (asserts! (is-eq asset-holder tx-sender) error-not-asset-holder)
+    (asserts! (is-valid-verification-data updated-data) error-invalid-asset-data)
+    (map-set asset-verification-data asset-id updated-data)
+    (ok true)))
