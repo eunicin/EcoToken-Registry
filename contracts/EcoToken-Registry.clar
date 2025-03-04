@@ -52,3 +52,91 @@
 ;; Verify caller is the current holder of specified asset
 (define-private (is-asset-holder (asset-id uint) (caller principal))
   (is-eq caller (unwrap! (nft-get-owner? eco-asset asset-id) false)))
+
+;; Validate verification data format and length
+(define-private (is-valid-verification-data (data (string-ascii 256)))
+  (let ((data-length (len data)))
+    (and (>= data-length u1)
+         (<= data-length u256))))
+
+;; Check if asset has been permanently retired
+(define-private (is-asset-retired (asset-id uint))
+  (default-to false (map-get? retired-assets asset-id)))
+
+;; Register single environmental asset
+(define-private (register-single-asset (verification-data (string-ascii 256)))
+  (let ((asset-id (+ (var-get registry-counter) u1)))
+    (asserts! (is-valid-verification-data verification-data) error-invalid-asset-data)
+    (try! (nft-mint? eco-asset asset-id tx-sender))
+    (map-set asset-verification-data asset-id verification-data)
+    (var-set registry-counter asset-id)
+    (ok asset-id)))
+
+;; Register single asset during group issuance
+(define-private (register-single-in-group (data (string-ascii 256)) (previous-results (list 50 uint)))
+  (match (register-single-asset data)
+    success (unwrap-panic (as-max-len? (append previous-results success) u50))
+    error previous-results))
+
+;; Create number sequence for bulk operations
+(define-private (create-number-sequence (count uint))
+  (map - (list count)))
+
+;; ******************************************************************
+;; Public Registry Functions  
+;; ******************************************************************
+
+;; Register single environmental asset
+(define-public (register-eco-asset (verification-data (string-ascii 256)))
+    (begin
+        ;; Verify caller has administrative privileges
+        (asserts! (is-eq tx-sender admin-principal) error-unauthorized)
+
+        ;; Explicitly validate verification data format
+        (asserts! (is-valid-verification-data verification-data) error-invalid-asset-data)
+
+        ;; Register the environmental asset
+        (register-single-asset verification-data)))
+
+;; Group registration of environmental assets
+(define-public (group-register-eco-assets (data-list (list 50 (string-ascii 256))))
+  (let ((group-size (len data-list)))
+    (begin
+      (asserts! (is-eq tx-sender admin-principal) error-unauthorized)
+      (asserts! (<= group-size max-group-issuance) error-group-size-invalid)
+      (asserts! (> group-size u0) error-group-size-invalid)
+      (ok (fold register-single-in-group data-list (list))))))
+
+;; Retire environmental asset (permanent)
+(define-public (retire-eco-asset (asset-id uint))
+  (let ((asset-holder (unwrap! (nft-get-owner? eco-asset asset-id) error-missing-asset)))
+    (asserts! (is-eq tx-sender asset-holder) error-not-asset-holder)
+    (asserts! (not (is-asset-retired asset-id)) error-retirement-failed)
+    (try! (nft-burn? eco-asset asset-id asset-holder))
+    (map-set retired-assets asset-id true)
+    (ok true)))
+
+;; Transfer environmental asset to new holder
+(define-public (transfer-eco-asset (asset-id uint) (current-holder principal) (new-holder principal))
+  (begin
+    (asserts! (is-eq new-holder tx-sender) error-not-asset-holder)
+    (asserts! (not (is-asset-retired asset-id)) error-retirement-failed)
+    (let ((verified-holder (unwrap! (nft-get-owner? eco-asset asset-id) error-not-asset-holder)))
+      (asserts! (is-eq verified-holder current-holder) error-not-asset-holder)
+      (try! (nft-transfer? eco-asset asset-id current-holder new-holder))
+      (ok true))))
+
+;; Verify asset validity (exists and not retired)
+(define-public (verify-asset-status (asset-id uint))
+  (let ((holder (nft-get-owner? eco-asset asset-id)))
+    (if (is-some holder)
+        (ok (not (is-asset-retired asset-id)))
+        (err error-missing-asset))))
+
+;; Update verification data for existing asset
+(define-public (update-asset-verification (asset-id uint) (updated-data (string-ascii 256)))
+  (let ((asset-holder (unwrap! (nft-get-owner? eco-asset asset-id) error-missing-asset)))
+    (asserts! (is-eq asset-holder tx-sender) error-not-asset-holder)
+    (asserts! (is-valid-verification-data updated-data) error-invalid-asset-data)
+    (map-set asset-verification-data asset-id updated-data)
+    (ok true)))
