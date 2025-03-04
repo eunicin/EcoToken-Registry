@@ -438,3 +438,101 @@
         (some expected-holder)
         (nft-get-owner? eco-asset asset-id))))
 
+;; Verification helper: Check asset lifecycle status
+(define-read-only (verify-asset-lifecycle (asset-id uint))
+    (ok {
+        registered: (is-some (nft-get-owner? eco-asset asset-id)),
+        retired: (is-asset-retired asset-id),
+        has-group-data: (is-some (map-get? asset-group-data asset-id))
+    }))
+
+;; Transfer validation with enhanced checks
+(define-private (validate-asset-transfer 
+    (asset-id uint) 
+    (new-holder principal))
+    (and
+        (not (is-asset-retired asset-id))
+        (is-asset-holder asset-id tx-sender)
+        (not (is-eq new-holder tx-sender))))
+
+;; Format asset data for interface display
+(define-private (asset-id-to-history (id uint))
+    {
+        id: id,
+        verification-data: (unwrap-panic (get-asset-verification id)),
+        holder: (unwrap-panic (get-asset-holder id)),
+        retired: (is-asset-retired id),
+        group-data: (map-get? asset-group-data id)
+    })
+
+;; Enhanced transfer validation
+(define-public (verified-transfer 
+    (asset-id uint) 
+    (new-holder principal))
+    (let ((validation-result (validate-asset-transfer asset-id new-holder)))
+        (asserts! validation-result error-not-asset-holder)
+        (try! (transfer-eco-asset asset-id tx-sender new-holder))
+        (ok true)))
+
+;; Asset lifecycle validation helper
+(define-private (validate-asset-lifecycle (asset-id uint))
+    (and
+        (is-some (nft-get-owner? eco-asset asset-id))
+        (not (is-asset-retired asset-id))))
+
+;; Retired asset counter helper
+(define-private (count-if-retired (id uint) (count uint))
+    (if (is-asset-retired id)
+        (+ count u1)
+        count))
+
+;; Ownership validation helper
+(define-private (verify-holding (id uint) (previous-result bool))
+    (and
+        (is-asset-holder id tx-sender)
+        previous-result))
+
+;; ******************************************************************
+;; Registry Status Indicators
+;; ******************************************************************
+(define-public (display-registry-size)
+  (ok (var-get registry-counter))) ;; Retrieve and display total registered assets
+
+;; ******************************************************************
+;; Asset Transfer Eligibility Check
+;; ******************************************************************
+(define-public (is-asset-transferable (asset-id uint))
+  (let ((is-valid (verify-asset-status asset-id)))
+    (if (is-ok is-valid)
+        (ok true) ;; Asset can be transferred if valid
+        (err error-missing-asset))))
+
+;; ******************************************************************
+;; Enhanced Registration Security
+;; ******************************************************************
+(define-public (secure-asset-registration (verification-data (string-ascii 256)))
+  (let ((new-asset-id (+ (var-get registry-counter) u1)))
+    (asserts! (<= new-asset-id max-group-issuance) error-group-size-invalid)
+    (register-eco-asset verification-data))) ;; Enhanced registration safety
+
+;; ******************************************************************
+;; Group Registration Validation
+;; ******************************************************************
+(define-public (validate-group-registration (data-list (list 50 (string-ascii 256))))
+  (let ((group-size (len data-list)))
+    (if (<= group-size max-group-issuance)
+        (ok true)
+        (err error-group-size-invalid)))) ;; Validate group size before registration
+
+;; ******************************************************************
+;; Recent Registry Activity Report
+;; ******************************************************************
+(define-read-only (get-recent-registry-activity)
+  (ok (map asset-id-to-details (list-registry-entries u0 u10)))) ;; List most recent registry entries
+
+;; ******************************************************************
+;; Administrator Verification
+;; ******************************************************************
+(define-public (verify-registry-admin)
+  (ok (is-eq tx-sender admin-principal))) ;; Verify caller is registry administrator
+
